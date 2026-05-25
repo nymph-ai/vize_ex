@@ -66,7 +66,9 @@ defmodule Vize.MixProject do
 
   defp deps do
     [
-      {:rustler, "~> 0.36 or ~> 0.37", optional: true},
+      # Non-optional in this fork: the NIF is always built from source
+      # (force_build), so rustler must be present.
+      {:rustler, "~> 0.36 or ~> 0.37"},
       {:rustler_precompiled, "~> 0.8"},
       {:ex_doc, "~> 0.40", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

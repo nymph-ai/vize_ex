@@ -4,7 +4,7 @@ use vize_atelier_vapor::ir::*;
 use crate::atoms;
 use crate::html_inject::{
     build_elem_to_tag, inject_attr, inject_before_close, parse_tag_tree,
-    replace_first_space_in_content, PROP_MARKER, STRUCT_MARKER, TEXT_MARKER,
+    replace_first_space_in_content,
 };
 use crate::ir_encoding::{encode_ir_prop, encode_simple_expr};
 use crate::term_encoding::nil_term;
@@ -107,57 +107,68 @@ fn encode_slot_component<'a>(env: Env<'a>, node: &CreateComponentIRNode) -> Term
     })
 }
 
-fn split_on_markers(html: &str) -> Vec<String> {
+// Delimiter for per-slot markers: `\0<slot_index>\0`. Each dynamic slot injects
+// a marker carrying its own index. Markers are injected in document order while
+// slots are pushed grouped by kind (props, then text, then structural), so the
+// index lets `split_on_markers` recover document order and reorder the slots to
+// match the static gaps. (Previously markers only encoded a kind, so a row that
+// mixed a bound attribute with interpolated text got its values swapped.)
+const MARKER_DELIM: &str = "\x00";
+
+fn slot_marker(slot_index: usize) -> String {
+    format!("{0}{1}{0}", MARKER_DELIM, slot_index)
+}
+
+/// Split `html` on slot markers. Returns the static segments and, for each gap
+/// (in document order), the index of the slot that fills it.
+fn split_on_markers(html: &str) -> (Vec<String>, Vec<usize>) {
     let mut statics = Vec::new();
+    let mut order = Vec::new();
     let mut current = String::new();
     let mut rest = html;
 
-    loop {
-        let prop_pos = rest.find(PROP_MARKER);
-        let text_pos = rest.find(TEXT_MARKER);
-        let struct_pos = rest.find(STRUCT_MARKER);
-        let next = [prop_pos, text_pos, struct_pos]
-            .iter()
-            .filter_map(|position| *position)
-            .min();
-
-        match next {
-            None => {
-                current.push_str(rest);
-                break;
-            }
-            Some(position) => {
-                current.push_str(&rest[..position]);
+    while let Some(start) = rest.find(MARKER_DELIM) {
+        let after = &rest[start + MARKER_DELIM.len()..];
+        match after.find(MARKER_DELIM) {
+            Some(end_rel) if after[..end_rel].parse::<usize>().is_ok() => {
+                let slot_index = after[..end_rel].parse::<usize>().unwrap();
+                current.push_str(&rest[..start]);
                 statics.push(std::mem::take(&mut current));
-
-                if Some(position) == prop_pos {
-                    rest = &rest[position + PROP_MARKER.len()..];
-                } else if Some(position) == text_pos {
-                    rest = &rest[position + TEXT_MARKER.len()..];
-                } else {
-                    rest = &rest[position + STRUCT_MARKER.len()..];
-                }
+                order.push(slot_index);
+                rest = &after[end_rel + MARKER_DELIM.len()..];
+            }
+            _ => {
+                // Lone/garbled delimiter — keep it literally and move past it.
+                current.push_str(&rest[..start + MARKER_DELIM.len()]);
+                rest = after;
             }
         }
     }
 
+    current.push_str(rest);
     statics.push(current);
-    statics
+    (statics, order)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{split_on_markers, PROP_MARKER, STRUCT_MARKER, TEXT_MARKER};
+    use super::{slot_marker, split_on_markers};
 
     #[test]
-    fn split_on_markers_preserves_segment_order() {
+    fn split_on_markers_recovers_segments_and_document_order() {
+        // Markers are emitted out of slot-index order to mimic props (pushed
+        // first, higher gap position) interleaved with text (pushed later).
         let html = format!(
             "<div>{}middle{}tail{}</div>",
-            PROP_MARKER, TEXT_MARKER, STRUCT_MARKER
+            slot_marker(2),
+            slot_marker(0),
+            slot_marker(1)
         );
 
+        let (statics, order) = split_on_markers(&html);
+
         assert_eq!(
-            split_on_markers(&html),
+            statics,
             vec![
                 "<div>".to_string(),
                 "middle".to_string(),
@@ -165,14 +176,15 @@ mod tests {
                 "</div>".to_string()
             ]
         );
+        // Document order of the gaps is [slot 2, slot 0, slot 1].
+        assert_eq!(order, vec![2, 0, 1]);
     }
 
     #[test]
     fn split_on_markers_handles_marker_free_html() {
-        assert_eq!(
-            split_on_markers("<div>plain</div>"),
-            vec!["<div>plain</div>".to_string()]
-        );
+        let (statics, order) = split_on_markers("<div>plain</div>");
+        assert_eq!(statics, vec!["<div>plain</div>".to_string()]);
+        assert!(order.is_empty());
     }
 }
 
@@ -241,7 +253,7 @@ pub(crate) fn process_block<'a, 'b>(
     for prop in &prop_effects {
         if let Some(&tag_pos) = elem_to_tag.get(&prop.element) {
             let attr_name = prop.prop.key.content.as_str();
-            let marker = format!(" {}=\"{}\"", attr_name, PROP_MARKER);
+            let marker = format!(" {}=\"{}\"", attr_name, slot_marker(slots.len()));
             inject_attr(&mut html, &mut tags, tag_pos, &marker);
 
             let values: Vec<Term<'a>> = prop
@@ -263,20 +275,20 @@ pub(crate) fn process_block<'a, 'b>(
             if let Some(&tag_pos) = elem_to_tag.get(&dir.element) {
                 match dir.name.as_str() {
                     "vShow" => {
-                        let marker = format!(" style=\"{}\"", PROP_MARKER);
-                        inject_attr(&mut html, &mut tags, tag_pos, &marker);
                         if let Some(vize_atelier_core::ExpressionNode::Simple(simple)) =
                             &dir.dir.exp
                         {
+                            let marker = format!(" style=\"{}\"", slot_marker(slots.len()));
+                            inject_attr(&mut html, &mut tags, tag_pos, &marker);
                             slots.push(encode_slot_value(env, atoms::v_show().encode(env), simple));
                         }
                     }
                     "model" => {
-                        let value_marker = format!(" value=\"{}\"", PROP_MARKER);
-                        inject_attr(&mut html, &mut tags, tag_pos, &value_marker);
                         if let Some(vize_atelier_core::ExpressionNode::Simple(simple)) =
                             &dir.dir.exp
                         {
+                            let value_marker = format!(" value=\"{}\"", slot_marker(slots.len()));
+                            inject_attr(&mut html, &mut tags, tag_pos, &value_marker);
                             slots.push(encode_slot_value(
                                 env,
                                 atoms::v_model().encode(env),
@@ -295,7 +307,7 @@ pub(crate) fn process_block<'a, 'b>(
 
     for text in &text_effects {
         if let Some(&tag_pos) = elem_to_tag.get(&text.element) {
-            replace_first_space_in_content(&mut html, &mut tags, tag_pos, TEXT_MARKER);
+            replace_first_space_in_content(&mut html, &mut tags, tag_pos, &slot_marker(slots.len()));
         }
 
         let values: Vec<Term<'a>> = text
@@ -312,7 +324,7 @@ pub(crate) fn process_block<'a, 'b>(
 
     for html_effect in &html_effects {
         if let Some(&tag_pos) = elem_to_tag.get(&html_effect.element) {
-            replace_first_space_in_content(&mut html, &mut tags, tag_pos, TEXT_MARKER);
+            replace_first_space_in_content(&mut html, &mut tags, tag_pos, &slot_marker(slots.len()));
         }
         slots.push(encode_slot_value(
             env,
@@ -324,32 +336,35 @@ pub(crate) fn process_block<'a, 'b>(
     for operation in &block.operation {
         match operation {
             OperationNode::If(if_node) => {
+                let marker = slot_marker(slots.len());
                 if let Some(parent_id) = if_node.parent {
                     if let Some(&tag_pos) = elem_to_tag.get(&parent_id) {
-                        inject_before_close(&mut html, &mut tags, tag_pos, STRUCT_MARKER);
+                        inject_before_close(&mut html, &mut tags, tag_pos, &marker);
                     }
                 } else {
-                    html.push_str(STRUCT_MARKER);
+                    html.push_str(&marker);
                 }
                 slots.push(encode_slot_if_split(env, if_node, ir));
             }
             OperationNode::For(for_node) => {
+                let marker = slot_marker(slots.len());
                 if let Some(parent_id) = for_node.parent {
                     if let Some(&tag_pos) = elem_to_tag.get(&parent_id) {
-                        inject_before_close(&mut html, &mut tags, tag_pos, STRUCT_MARKER);
+                        inject_before_close(&mut html, &mut tags, tag_pos, &marker);
                     }
                 } else {
-                    html.push_str(STRUCT_MARKER);
+                    html.push_str(&marker);
                 }
                 slots.push(encode_slot_for_split(env, for_node, ir));
             }
             OperationNode::CreateComponent(component) => {
+                let marker = slot_marker(slots.len());
                 if let Some(parent_id) = component.parent {
                     if let Some(&tag_pos) = elem_to_tag.get(&parent_id) {
-                        inject_before_close(&mut html, &mut tags, tag_pos, STRUCT_MARKER);
+                        inject_before_close(&mut html, &mut tags, tag_pos, &marker);
                     }
                 } else {
-                    html.push_str(STRUCT_MARKER);
+                    html.push_str(&marker);
                 }
                 slots.push(encode_slot_component(env, component));
             }
@@ -357,5 +372,13 @@ pub(crate) fn process_block<'a, 'b>(
         }
     }
 
-    (split_on_markers(&html), slots)
+    // Markers are injected in document order but slots were pushed grouped by
+    // kind; reorder slots to match the document-order gaps from split_on_markers.
+    let (statics, order) = split_on_markers(&html);
+    let ordered_slots: Vec<Term<'a>> = order
+        .into_iter()
+        .filter_map(|index| slots.get(index).copied())
+        .collect();
+
+    (statics, ordered_slots)
 }

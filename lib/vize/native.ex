@@ -5,7 +5,10 @@ defmodule Vize.Native do
     otp_app: :vize,
     crate: "vize_ex_nif",
     base_url: "https://github.com/elixir-volt/vize_ex/releases/download/v#{version}",
-    force_build: System.get_env("VIZE_EX_BUILD") in ["1", "true"],
+    # nymph-ai fork: always build the NIF from source. There is no published
+    # precompiled binary for this patched fork (slot-order fix in vapor_split),
+    # so the upstream base_url has nothing to download.
+    force_build: true,
     targets: ~w(
       aarch64-apple-darwin
       aarch64-unknown-linux-gnu
