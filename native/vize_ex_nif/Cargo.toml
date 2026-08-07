@@ -18,16 +18,16 @@ grass = { version = "0.13.4", default-features = false }
 # Keep every Vize crate on one upstream revision. Patina is no longer published
 # independently, so mixing crates.io packages with it would compile two copies
 # of the Vize workspace and allow their APIs to drift apart.
-vize_carton = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
-vize_relief = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
-vize_armature = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
-vize_atelier_core = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
-vize_atelier_dom = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
-vize_atelier_vapor = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
-vize_atelier_ssr = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
-vize_atelier_sfc = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c", features = ["native"] }
-vize_patina = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
-vize_croquis = { git = "https://github.com/ubugeeei-prod/vize", rev = "c1b679074414bc3925651e64c96d316a89d27e8c" }
+vize_carton = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
+vize_relief = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
+vize_armature = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
+vize_atelier_core = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
+vize_atelier_dom = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
+vize_atelier_vapor = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
+vize_atelier_ssr = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
+vize_atelier_sfc = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc", features = ["native"] }
+vize_patina = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
+vize_croquis = { git = "https://github.com/nymph-ai/vize", rev = "b43fd99cc" }
 
 [dev-dependencies]
 proptest = "1.6"
