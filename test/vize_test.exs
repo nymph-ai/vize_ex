@@ -79,6 +79,23 @@ defmodule VizeTest do
     end
   end
 
+  describe "analyze_sfc/2" do
+    test "returns a Croquis summary" do
+      source =
+        ~S[<template><MyButton :label="msg" @click="save" /></template><script setup>const msg = "hi"; function save(){}</script>]
+
+      assert {:ok, %Vize.Croquis{} = croquis} = Vize.analyze_sfc(source)
+      assert "MyButton" in croquis.used_components
+
+      assert [%{name: "MyButton", props: [%{name: "label"}], events: [%{name: "click"}]}] =
+               croquis.component_usages
+    end
+
+    test "bang variant returns a Croquis" do
+      assert %Vize.Croquis{} = Vize.analyze_sfc!("<template><div /></template>")
+    end
+  end
+
   describe "compile_sfc/2" do
     test "compiles simple SFC" do
       {:ok, result} = Vize.compile_sfc(@simple_sfc)
@@ -217,6 +234,15 @@ defmodule VizeTest do
       {:ok, result} = Vize.compile_vapor("<button @click=\"onClick\">click</button>")
       assert result.code =~ "click"
     end
+
+    test "can return structured diagnostics" do
+      {:ok, result} = Vize.compile_vapor(~s(<div id="a" id="b">x</div>), diagnostics: true)
+
+      assert %Vize.Vapor.Result{} = result
+
+      assert [%Vize.Diagnostic{code: "DuplicateAttribute", recoverable?: true}] =
+               result.diagnostics
+    end
   end
 
   describe "compile_vapor!/2" do
@@ -308,6 +334,98 @@ defmodule VizeTest do
     end
   end
 
+  describe "Vize.CSS URL helpers" do
+    test "selects parser-backed URL events" do
+      css = ".foo { background: url('./logo.svg') }"
+
+      assert {:ok, [%{url: "./logo.svg", start: start, end: finish}]} =
+               Vize.CSS.select(css, :urls)
+
+      assert binary_part(css, start, finish - start) == "./logo.svg"
+    end
+
+    test "collects parser-backed URL ranges" do
+      css = ".foo { background: url('./logo.svg') }"
+
+      assert {:ok, [%Vize.CSS.URL{url: "./logo.svg", range: range}]} =
+               Vize.CSS.collect_urls(css)
+
+      assert binary_part(css, range.start, range.end - range.start) == "./logo.svg"
+    end
+
+    test "selects parser-backed import events" do
+      css = "@import './reset.css';\n@import './print.css' print;\n.app { color: red }"
+
+      assert {:ok,
+              [
+                %{
+                  url: "./reset.css",
+                  start: reset_start,
+                  end: reset_end,
+                  media: nil,
+                  supports: nil
+                },
+                %{
+                  url: "./print.css",
+                  start: print_start,
+                  end: print_end,
+                  media: "print",
+                  supports: nil
+                }
+              ]} = Vize.CSS.select(css, :imports)
+
+      assert binary_part(css, reset_start, reset_end - reset_start) == "./reset.css"
+      assert binary_part(css, print_start, print_end - print_start) == "./print.css"
+    end
+
+    test "selects mixed CSS dependency events" do
+      css =
+        "@import './theme.css' supports(display: grid);\n.logo { background: url('./logo.svg') }"
+
+      assert {:ok,
+              [
+                %{kind: :import, url: "./theme.css", supports: "(display: grid)"},
+                %{kind: :url, url: "./logo.svg"}
+              ]} = Vize.CSS.select(css, :dependencies)
+    end
+
+    test "rewrites URLs without CSS AST print roundtrip" do
+      css = ".x{left:calc(var(--vscode-sash-size)*-.5);background:url('./logo.svg')}"
+
+      assert {:ok, rewritten} =
+               Vize.CSS.rewrite_urls(css, fn
+                 "./logo.svg" -> {:rewrite, "/assets/logo-hash.svg"}
+                 _url -> :keep
+               end)
+
+      assert rewritten =~ "calc(var(--vscode-sash-size)*-.5)"
+      assert rewritten =~ "url('/assets/logo-hash.svg')"
+    end
+
+    test "rewrites font URLs without CSS AST print roundtrip" do
+      css = "@font-face { src: url(foo.ttf); }"
+
+      assert {:ok, rewritten} =
+               Vize.CSS.rewrite_urls(css, fn
+                 "foo.ttf" -> {:rewrite, "/assets/foo.ttf"}
+                 _url -> :keep
+               end)
+
+      assert rewritten == "@font-face { src: url(/assets/foo.ttf); }"
+    end
+
+    test "bang variants return values" do
+      css = ".foo { background: url('./logo.svg') }"
+
+      assert [%Vize.CSS.URL{url: "./logo.svg"}] = Vize.CSS.collect_urls!(css)
+
+      assert Vize.CSS.rewrite_urls!(css, fn
+               "./logo.svg" -> {:rewrite, "/assets/logo.svg"}
+               _url -> :keep
+             end) =~ "/assets/logo.svg"
+    end
+  end
+
   describe "Vize.CSS AST helpers" do
     test "round-trips CSS through an Elixir AST" do
       {:ok, parsed} = Vize.CSS.parse_ast(".foo { color: red }")
@@ -392,6 +510,48 @@ defmodule VizeTest do
     test "bang variant works" do
       result = Vize.CSS.compile!(".foo { color: red }")
       assert result.code =~ "color"
+    end
+  end
+
+  describe "compile_sass/2" do
+    test "compiles SCSS variables and nesting" do
+      {:ok, result} =
+        Vize.CSS.compile_sass("$color: #c00; .button { color: $color; &:hover { color: blue; } }")
+
+      assert result.code =~ ".button"
+      assert result.code =~ ".button:hover"
+      assert result.code =~ "#c00"
+    end
+
+    test "compiles indented Sass syntax" do
+      {:ok, result} =
+        Vize.CSS.compile_sass("$color: red\n.button\n  color: $color", syntax: :sass)
+
+      assert result.code =~ ".button"
+      assert result.code =~ "color: red"
+    end
+
+    test "resolves imports relative to the filename" do
+      directory = Path.join(System.tmp_dir!(), "vize-sass-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(directory)
+      on_exit(fn -> File.rm_rf(directory) end)
+      File.write!(Path.join(directory, "_colors.scss"), "$brand: rebeccapurple;")
+
+      assert {:ok, result} =
+               Vize.CSS.compile_sass("@use 'colors' as *; .logo { color: $brand; }",
+                 filename: Path.join(directory, "app.scss")
+               )
+
+      assert result.code =~ "rebeccapurple"
+    end
+
+    test "returns compilation errors and bang variant raises" do
+      assert {:error, error} = Vize.CSS.compile_sass(".broken { color: $missing; }")
+      assert error =~ "Undefined variable"
+
+      assert_raise RuntimeError, ~r/Vize Sass compile error/, fn ->
+        Vize.CSS.compile_sass!(".broken { color: $missing; }")
+      end
     end
   end
 

@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.14.1 - 2026-07-20
+
+### Added
+
+- Add an x86_64 Windows precompiled NIF target.
+
+## 0.14.0 - 2026-07-10
+
+### Added
+
+- Add native Sass and SCSS compilation through `Vize.CSS.compile_sass/2` and `Vize.CSS.compile_sass!/2`, backed by the Rust `grass` compiler. Supports SCSS and indented Sass syntax, relative imports, additional load paths, and compressed output.
+
+### Changed
+
+- Upgrade the upstream Vize workspace from 0.206 to 0.290.
+
+## 0.13.1 - 2026-06-23
+
+### Added
+
+- Add `:imports` and `:dependencies` selectors to `Vize.CSS.select/3` for parser-backed CSS `@import` dependency discovery.
+
+## 0.13.0 - 2026-06-19
+
+### Added
+
+- Add `Vize.CSS.select/3` for compact parser-backed CSS event selection.
+- Add the `:urls` CSS selector for `url()` references with source byte ranges and locations.
+
+### Changed
+
+- `Vize.CSS.collect_urls/2` now uses the CSS selector API internally.
+- Native CSS selection now uses the shared `rustler_match_spec` crate.
+- Upgrade native Rustler dependency to 0.38.
+- Struct constructors now use strict atom-keyed input contracts.
+
+## 0.12.0
+
+### Added
+
+- Add `Vize.CSS.collect_urls/2` and `Vize.CSS.rewrite_urls/3` for parser-backed CSS URL source rewriting without CSS AST print round-trips.
+- Add bang variants for CSS URL helpers.
+- Add structured `Vize.Error`, `Vize.Diagnostic`, source range/location, CSS URL, Vapor result, and Croquis structs.
+- Add structured Vapor diagnostics with `diagnostics: true` and `template_syntax: :standard | :quirks` options.
+- Add `Vize.analyze_sfc/2` and `Vize.analyze_sfc!/2` returning `%Vize.Croquis{}` semantic summaries.
+
+### Changed
+
+- Bump upstream Vize crates 0.112 → 0.206.
+- `Vize.compile_vapor/2` now returns `%Vize.Vapor.Result{}`.
+
 ## 0.11.1
 
 - Bump upstream Vize crates 0.109 → 0.112.

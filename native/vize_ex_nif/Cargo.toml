@@ -8,20 +8,26 @@ name = "vize_ex_nif"
 crate-type = ["cdylib"]
 
 [dependencies]
-rustler = { version = "0.37", default-features = false, features = ["derive", "nif_version_2_15"] }
+rustler = { version = "0.38", default-features = false, features = ["derive", "nif_version_2_15"] }
+rustler_match_spec = { version = "0.1", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+lightningcss = { version = "=1.0.0-alpha.71", features = ["visitor"] }
+grass = { version = "0.13.4", default-features = false }
 
-vize_carton = "0.112"
-vize_relief = "0.112"
-vize_armature = "0.112"
-vize_atelier_core = "0.112"
-vize_atelier_dom = "0.112"
-vize_atelier_vapor = "0.112"
-vize_atelier_ssr = "0.112"
-vize_atelier_sfc = { version = "0.112", features = ["native"] }
-vize_patina = "0.112"
-vize_croquis = "0.112"
+# Keep every Vize crate on one upstream revision. Patina is no longer published
+# independently, so mixing crates.io packages with it would compile two copies
+# of the Vize workspace and allow their APIs to drift apart.
+vize_carton = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
+vize_relief = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
+vize_armature = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
+vize_atelier_core = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
+vize_atelier_dom = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
+vize_atelier_vapor = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
+vize_atelier_ssr = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
+vize_atelier_sfc = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7", features = ["native"] }
+vize_patina = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
+vize_croquis = { git = "https://github.com/nymph-ai/vize", rev = "59ece21b7" }
 
 [dev-dependencies]
 proptest = "1.6"

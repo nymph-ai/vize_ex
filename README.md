@@ -71,6 +71,15 @@ result.code       # Vapor JS (no virtual DOM)
 result.templates  # Static HTML templates
 ```
 
+Structured diagnostics are available when requested:
+
+```elixir
+{:ok, %Vize.Vapor.Result{diagnostics: diagnostics}} =
+  Vize.compile_vapor(~s(<div id="a" id="b">x</div>), diagnostics: true)
+
+[%Vize.Diagnostic{code: "DuplicateAttribute", recoverable?: true}] = diagnostics
+```
+
 ### Vapor IR (for BEAM-native SSR)
 
 ```elixir
@@ -136,13 +145,23 @@ result.helpers  # ["createElementVNode", "toDisplayString", ...]
 {:ok, diagnostics} = Vize.lint("<template><img></template>", "App.vue")
 ```
 
-### Parse SFC
+### Parse and Analyze SFC
 
 ```elixir
 {:ok, descriptor} = Vize.parse_sfc(source)
 descriptor.template      # %{content: "...", lang: nil, ...}
 descriptor.script_setup  # %{content: "...", setup: true, ...}
 descriptor.styles        # [%{content: "...", scoped: true, ...}]
+```
+
+Semantic analysis returns a `%Vize.Croquis{}` summary:
+
+```elixir
+{:ok, croquis} = Vize.analyze_sfc(source)
+croquis.bindings
+croquis.used_components
+croquis.component_usages
+croquis.template_expressions
 ```
 
 ### CSS Compilation
@@ -170,7 +189,33 @@ Browser targeting:
 {:ok, result} = Vize.CSS.compile(css, targets: %{chrome: 80, firefox: 78, safari: 14})
 ```
 
-Parser-backed CSS tooling:
+Native Sass and SCSS compilation via the Rust `grass` compiler:
+
+```elixir
+{:ok, result} =
+  Vize.CSS.compile_sass("$brand: #639; .button { color: $brand; &:hover { opacity: .8 } }")
+
+result.code
+# ".button { ... }\n.button:hover { ... }"
+```
+
+Use `syntax: :sass` for indented syntax, `filename:` for relative imports, and
+`load_paths:` for additional import directories.
+
+Parser-backed CSS URL rewriting without AST print round-trips:
+
+```elixir
+{:ok, urls} = Vize.CSS.collect_urls(".logo { background: url('./logo.svg') }")
+[%Vize.CSS.URL{url: "./logo.svg"}] = urls
+
+{:ok, css} =
+  Vize.CSS.rewrite_urls(".logo { background: url('./logo.svg') }", fn
+    "./logo.svg" -> {:rewrite, "/assets/logo.svg"}
+    _ -> :keep
+  end)
+```
+
+Parser-backed CSS AST tooling:
 
 ```elixir
 {:ok, parsed} = Vize.CSS.parse_ast(".foo { background: url('./logo.svg') }")
@@ -183,6 +228,17 @@ ast =
 
 {:ok, result} = Vize.CSS.print_ast(ast)
 ```
+
+## Part of Elixir Volt
+
+vize compiles and analyzes Vue single-file components from Elixir, including Vapor-mode IR for BEAM-native rendering.
+
+It is part of a frontend stack that runs inside the BEAM — builds, JS
+runtimes, icons, and Vue-to-LiveView compilation as supervised parts of the
+application instead of external toolchain processes. See the
+[Elixir Volt](https://github.com/elixir-volt) organization for the rest, and
+[Building Blocks for the Future Web](https://github.com/elixir-vibe/building-blocks)
+for the thesis, architecture, and roadmap that tie them together.
 
 ## License
 

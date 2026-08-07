@@ -24,6 +24,8 @@ defmodule Vize.CSS do
           warnings: [String.t()]
         }
 
+  @type url_ref :: Vize.CSS.URL.t()
+
   @doc """
   Compile CSS using LightningCSS.
 
@@ -71,6 +73,36 @@ defmodule Vize.CSS do
       safari,
       css_modules
     )
+  end
+
+  @doc """
+  Compile Sass or SCSS to CSS using the native Rust `grass` compiler.
+
+  ## Options
+
+    * `:syntax` — `:scss` (default) or `:sass`
+    * `:filename` — source filename, used to resolve relative imports
+    * `:load_paths` — additional directories used to resolve imports
+    * `:compressed` — emit compressed CSS (default: `false`)
+  """
+  @spec compile_sass(String.t(), keyword()) ::
+          {:ok, %{code: String.t()}} | {:error, String.t()}
+  def compile_sass(source, opts \\ []) do
+    syntax = opts |> Keyword.get(:syntax, :scss) |> Atom.to_string()
+    filename = opts |> Keyword.get(:filename, "") |> to_string()
+    load_paths = opts |> Keyword.get(:load_paths, []) |> Enum.map(&Path.expand/1)
+    compressed = Keyword.get(opts, :compressed, false)
+
+    Vize.Native.compile_sass_nif(source, syntax, filename, load_paths, compressed)
+  end
+
+  @doc "Like `compile_sass/2` but raises on compilation errors."
+  @spec compile_sass!(String.t(), keyword()) :: %{code: String.t()}
+  def compile_sass!(source, opts \\ []) do
+    case compile_sass(source, opts) do
+      {:ok, result} -> result
+      {:error, error} -> raise "Vize Sass compile error: #{error}"
+    end
   end
 
   @doc "Like `compile/2` but raises on errors."
@@ -128,6 +160,143 @@ defmodule Vize.CSS do
         end
 
         result
+    end
+  end
+
+  @doc """
+  Select compact parser events from CSS source by name.
+
+  Available selectors:
+
+    * `:urls` — `url()` references with source byte ranges and source locations
+    * `:imports` — `@import` references with source byte ranges, source locations,
+      and optional `supports` / `media` conditions
+    * `:dependencies` — both `url()` and `@import` dependency references with a
+      `:kind` field of `:url` or `:import`
+
+  ## Options
+
+    * `:filename` — filename for parser locations and error reporting
+    * `:css_modules` — enable CSS Modules parsing (default: `false`)
+    * `:custom_media` — enable custom media parsing (default: `false`)
+  """
+  @spec select(String.t(), atom(), keyword()) :: {:ok, [map()]} | {:error, Vize.Error.t()}
+  def select(source, selector, opts \\ []) when is_atom(selector) do
+    filename = Keyword.get(opts, :filename, "")
+    css_modules = Keyword.get(opts, :css_modules, false)
+    custom_media = Keyword.get(opts, :custom_media, false)
+
+    case Vize.Native.select_css_nif(
+           source,
+           filename,
+           custom_media,
+           css_modules,
+           selector_spec(selector)
+         ) do
+      {:ok, events} -> {:ok, events}
+      {:error, errors} -> {:error, error("Vize CSS selection error", errors)}
+    end
+  end
+
+  @doc """
+  Collect parser-backed `url()` references from CSS source.
+
+  Returns byte offsets for the URL value inside the original source, suitable for
+  source patching without round-tripping through the serialized CSS AST.
+  """
+  @spec collect_urls(String.t(), keyword()) :: {:ok, [url_ref()]} | {:error, Vize.Error.t()}
+  def collect_urls(source, opts \\ []) do
+    case select(source, :urls, opts) do
+      {:ok, urls} -> {:ok, Enum.map(urls, &Vize.CSS.URL.new/1)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp selector_spec(:urls) do
+    [
+      {{:css_url, :"$1", :"$2", :"$3", :"$4", :"$5", :"$6", :"$7", :"$8", :"$9"}, [],
+       [source_ref_projection()]}
+    ]
+  end
+
+  defp selector_spec(:imports) do
+    [
+      {{:css_import, :"$1", :"$2", :"$3", :"$4", :"$5", :"$6", :"$7", :"$8", :"$9"}, [],
+       [Map.merge(source_ref_projection(), %{supports: :"$8", media: :"$9"})]}
+    ]
+  end
+
+  defp selector_spec(:dependencies) do
+    [
+      {{:css_url, :"$1", :"$2", :"$3", :"$4", :"$5", :"$6", :"$7", :"$8", :"$9"}, [],
+       [Map.put(source_ref_projection(), :kind, :url)]},
+      {{:css_import, :"$1", :"$2", :"$3", :"$4", :"$5", :"$6", :"$7", :"$8", :"$9"}, [],
+       [Map.merge(source_ref_projection(), %{kind: :import, supports: :"$8", media: :"$9"})]}
+    ]
+  end
+
+  defp selector_spec(selector) do
+    raise ArgumentError, "unknown Vize CSS selector #{inspect(selector)}"
+  end
+
+  defp source_ref_projection do
+    %{
+      url: :"$1",
+      start: :"$2",
+      end: :"$3",
+      start_line: :"$4",
+      start_column: :"$5",
+      end_line: :"$6",
+      end_column: :"$7"
+    }
+  end
+
+  @doc "Like `collect_urls/2` but raises `Vize.Error` on errors."
+  @spec collect_urls!(String.t(), keyword()) :: [url_ref()]
+  def collect_urls!(source, opts \\ []) do
+    case collect_urls(source, opts) do
+      {:ok, urls} -> urls
+      {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  Rewrite parser-backed `url()` references in CSS source.
+
+  The callback receives each URL string and returns either `:keep` or
+  `{:rewrite, new_url}`. Rewrites are applied to the original source using byte
+  ranges reported by the native parser.
+  """
+  @spec rewrite_urls(String.t(), keyword(), (String.t() -> :keep | {:rewrite, iodata()})) ::
+          {:ok, String.t()} | {:error, Vize.Error.t()}
+  def rewrite_urls(source, fun) when is_function(fun, 1), do: rewrite_urls(source, [], fun)
+
+  def rewrite_urls(source, opts, fun) when is_function(fun, 1) do
+    with {:ok, urls} <- collect_urls(source, opts) do
+      patches =
+        Enum.reduce(urls, [], fn %Vize.CSS.URL{url: url, range: range}, acc ->
+          case fun.(url) do
+            {:rewrite, replacement} ->
+              [%{start: range.start, end: range.end, change: replacement} | acc]
+
+            :keep ->
+              acc
+          end
+        end)
+
+      {:ok, patch_string(source, patches)}
+    end
+  end
+
+  @doc "Like `rewrite_urls/3` but raises `Vize.Error` on errors."
+  @spec rewrite_urls!(String.t(), keyword(), (String.t() -> :keep | {:rewrite, iodata()})) ::
+          String.t()
+  def rewrite_urls!(source, fun) when is_function(fun, 1), do: rewrite_urls!(source, [], fun)
+
+  def rewrite_urls!(source, opts, fun) when is_function(fun, 1) do
+    case rewrite_urls(source, opts, fun) do
+      {:ok, source} -> source
+      {:error, error} -> raise error
     end
   end
 
@@ -285,6 +454,23 @@ defmodule Vize.CSS do
       end)
 
     Enum.reverse(collected)
+  end
+
+  defp error(message, errors), do: Vize.Error.new(message, errors)
+
+  defp patch_string(source, patches) do
+    {chunks, offset} =
+      patches
+      |> Enum.uniq_by(fn %{start: start, end: end_offset} -> {start, end_offset} end)
+      |> Enum.sort_by(fn %{start: start} -> start end)
+      |> Enum.reduce({[], 0}, fn %{start: start, end: end_offset, change: replacement},
+                                 {chunks, offset} ->
+        chunk = binary_part(source, offset, start - offset)
+        {[replacement, chunk | chunks], end_offset}
+      end)
+
+    tail = binary_part(source, offset, byte_size(source) - offset)
+    IO.iodata_to_binary(Enum.reverse([tail | chunks]))
   end
 
   defp do_prewalk(value, fun, acc) when is_map(value) do
