@@ -18,16 +18,18 @@ grass = { version = "0.13.4", default-features = false }
 # Keep every Vize crate on one upstream revision. Patina is no longer published
 # independently, so mixing crates.io packages with it would compile two copies
 # of the Vize workspace and allow their APIs to drift apart.
-vize_carton = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
-vize_relief = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
-vize_armature = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
-vize_atelier_core = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
-vize_atelier_dom = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
-vize_atelier_vapor = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
-vize_atelier_ssr = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
-vize_atelier_sfc = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e", features = ["native"] }
-vize_patina = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
-vize_croquis = { git = "https://github.com/nymph-ai/vize", rev = "1cebdc70e" }
+# This orphan snapshot has the exact tree of canonical commit 1cebdc70e, without
+# its fixture-heavy ancestry in Cargo's git cache.
+vize_carton = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
+vize_relief = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
+vize_armature = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
+vize_atelier_core = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
+vize_atelier_dom = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
+vize_atelier_vapor = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
+vize_atelier_ssr = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
+vize_atelier_sfc = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78", features = ["native"] }
+vize_patina = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
+vize_croquis = { git = "https://github.com/nymph-ai/vize", rev = "b7ac22718782ff7c730a38f7a41617ae3d8cca78" }
 
 [dev-dependencies]
 proptest = "1.6"
